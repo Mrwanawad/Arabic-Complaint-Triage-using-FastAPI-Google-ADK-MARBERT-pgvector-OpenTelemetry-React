@@ -24,7 +24,9 @@ All model numbers come from **synthetic template data** (992 rows, split by temp
 
 Verified by tests or a local run: the ADK Runner, failover to a stubbed DeepSeek API over real HTTP, circuit breaking, semantic cache hits and the negation guard, PII masking, idempotency under concurrency, shared rate limiting, hash partitions, streaming replication with dashboard reads from the replica, the review flow, MCP, voice transcription, and the React console.
 
-Not verified yet: calls to the real Gemini, Anthropic, and DeepSeek APIs, the DeepEval suite (which needs those keys), and the Docker image, Nginx, Collector, Prometheus, and Compose replica scripts (which need Docker running). `docker compose config` passes.
+CI also boots the Compose topology on every push and runs `scripts/compose_smoke.sh` against it: load balancing across 3 API replicas, hot-standby replication, Nginx rate limiting, Prometheus scraping, and traces in Jaeger. That stack serves the baseline, because CI has no MARBERT artifact.
+
+Not verified yet: calls to the real Gemini, Anthropic, and DeepSeek APIs, the DeepEval suite (which needs those keys), the MARBERT encoder and Whisper inside the container, Langfuse export, and a real Render deployment.
 
 ## Layout
 
@@ -89,6 +91,17 @@ Seed the few-shot store after the database is up:
 ```bash
 DATABASE_URL=postgresql://triage:<POSTGRES_PASSWORD>@localhost:5432/triage python -m training.seed_examples
 ```
+
+### Deploy to Render
+
+The image ships no models, so build a bundle, host it somewhere the service can download it, and set its URL and checksum:
+
+```bash
+tar -czf artifacts.tar.gz -C artifacts .
+sha256sum artifacts.tar.gz
+```
+
+Set `ARTIFACTS_URL` and `ARTIFACTS_SHA256` on the service. The blueprint uses a paid 2 GB instance because the service needs about 1.2 GB.
 
 ## Test
 
