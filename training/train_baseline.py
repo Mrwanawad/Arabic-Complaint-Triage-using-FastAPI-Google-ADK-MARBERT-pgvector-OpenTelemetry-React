@@ -14,7 +14,7 @@ from imblearn.over_sampling import RandomOverSampler
 from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.pipeline import FeatureUnion
+from sklearn.pipeline import FeatureUnion, Pipeline
 from sklearn.svm import LinearSVC
 
 from training.common import HEADS, head_metrics, high_urgency_recall, load_dataset, report, split
@@ -38,6 +38,12 @@ def _model(strategy: str) -> ImbPipeline:
         steps.append(("sampler", RandomOverSampler(random_state=42)))
     steps.append(("classifier", calibrated))
     return ImbPipeline(steps)
+
+
+def serving_pipeline(model: ImbPipeline) -> Pipeline:
+    """Resampling only affects fit, so serving drops it, along with the imbalanced-learn dependency
+    that the production image does not install."""
+    return Pipeline([step for step in model.steps if step[0] != "sampler"])
 
 
 def main() -> None:
@@ -65,7 +71,7 @@ def main() -> None:
             print(f"[{head}/{strategy}] {metrics}")
             if metrics["macro_f1"] > best_score:
                 best_score = metrics["macro_f1"]
-                models[head] = model
+                models[head] = serving_pipeline(model)
                 best_predictions = predictions
                 results[head]["selected"] = strategy
         print(report(test[head], best_predictions))
