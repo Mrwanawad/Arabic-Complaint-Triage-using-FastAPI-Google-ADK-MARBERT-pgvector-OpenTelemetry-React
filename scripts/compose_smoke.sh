@@ -88,10 +88,28 @@ else
   echo "PASS  no server errors during burst"
 fi
 
-# Telemetry export is batched and scraping runs every 15 seconds.
-sleep 25
-at_least "Prometheus sees API replicas" "$(curl -s http://localhost:9090/api/v1/targets |
-  python3 -c 'import json,sys; t=json.load(sys.stdin)["data"]["activeTargets"]; print(sum(x["labels"]["job"]=="triage-api" and x["health"]=="up" for x in t))')" 3
+# Discovery refreshes every 10 seconds and new targets stay "unknown" until their first scrape.
+targets_up() {
+  curl -s http://localhost:9090/api/v1/targets | python3 -c '
+import json, sys
+targets = json.load(sys.stdin)["data"]["activeTargets"]
+print(sum(t["labels"]["job"] == "triage-api" and t["health"] == "up" for t in targets))'
+}
+for _ in $(seq 1 18); do
+  up=$(targets_up)
+  ((up >= 3)) && break
+  sleep 5
+done
+at_least "Prometheus sees API replicas" "$up" 3
+if ((up < 3)); then
+  curl -s http://localhost:9090/api/v1/targets | python3 -c '
+import json, sys
+for t in json.load(sys.stdin)["data"]["activeTargets"]:
+    print(t["labels"]["job"], t["labels"]["instance"], t["health"], t.get("lastError", ""))'
+fi
+
+# Span export is batched and scraping runs every 15 seconds.
+sleep 20
 check "ticket metric reached Prometheus" \
   "$(curl -s 'http://localhost:9090/api/v1/query?query=triage_tickets_total')" '"triage_tickets_total"'
 check "traces reached Jaeger" "$(curl -s http://localhost:16686/api/services)" "arabic-complaint-triage"
