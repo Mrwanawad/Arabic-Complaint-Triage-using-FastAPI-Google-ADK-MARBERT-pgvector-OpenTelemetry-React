@@ -112,6 +112,11 @@ fi
 sleep 20
 check "ticket metric reached Prometheus" \
   "$(curl -s 'http://localhost:9090/api/v1/query?query=triage_tickets_total')" '"triage_tickets_total"'
+check "replica lag metric reached Prometheus" \
+  "$(curl -s 'http://localhost:9090/api/v1/query?query=triage_replica_lag_seconds_count')" \
+  '"triage_replica_lag_seconds_count"'
+check "category label on ticket metric" \
+  "$(curl -s 'http://localhost:9090/api/v1/query?query=triage_tickets_total')" '"category"'
 check "traces reached Jaeger" "$(curl -s http://localhost:16686/api/services)" "arabic-complaint-triage"
 
 if ((failures > 0)); then

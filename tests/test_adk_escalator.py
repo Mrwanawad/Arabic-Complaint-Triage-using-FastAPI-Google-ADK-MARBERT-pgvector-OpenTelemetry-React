@@ -17,7 +17,7 @@ from triage.adapters.outbound.adk_escalator import (
     build_route,
     parse_output,
 )
-from triage.application.ports import EscalationUnavailable
+from triage.application.ports import EscalationUnavailable, NullTelemetry
 from triage.domain.models import Category, LabeledExample, Sentiment, Urgency
 
 VALID = json.dumps(
@@ -78,6 +78,33 @@ def test_real_runner_returns_validated_prediction():
     assert result.urgency_confidence == 0.82
     assert result.model_version == "gemini+triage-v1"
     assert len(llm.calls) == 1
+
+
+def test_token_usage_is_recorded():
+    class Recorder(NullTelemetry):
+        def __init__(self):
+            self.counts = []
+
+        def count(self, name, value=1, **attributes):
+            self.counts.append((name, value, attributes))
+
+    class UsageModel(ScriptedModel):
+        async def generate_content_async(self, llm_request, stream=False):
+            yield LlmResponse(
+                content=types.Content(role="model", parts=[types.Part(text=self.reply)]),
+                usage_metadata=types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=11, candidates_token_count=7
+                ),
+            )
+
+    telemetry = Recorder()
+    decide(AdkEscalator([route("gemini", UsageModel(model="g", calls=[]))], telemetry=telemetry))
+    assert ("triage.llm_tokens", 11, {"provider": "gemini", "kind": "prompt"}) in telemetry.counts
+    assert (
+        "triage.llm_tokens",
+        7,
+        {"provider": "gemini", "kind": "completion"},
+    ) in telemetry.counts
 
 
 def test_fails_over_from_primary_to_deepseek():

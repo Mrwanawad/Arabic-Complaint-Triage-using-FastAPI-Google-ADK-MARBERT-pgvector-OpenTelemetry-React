@@ -144,6 +144,26 @@ def test_writes_replicate_including_partitions_and_vectors(cluster):
     assert wait_for_row(cluster["replica"], item.ticket_id)
 
 
+def test_replica_lag_is_reported(cluster):
+    async def scenario():
+        primary = create_pool(cluster["primary"], 2)
+        replica = create_pool(cluster["replica"], 2)
+        await primary.open(wait=True)
+        await replica.open(wait=True)
+        try:
+            return (
+                await PostgresTickets(primary, replica).replica_lag_seconds(),
+                await PostgresTickets(primary).replica_lag_seconds(),
+            )
+        finally:
+            await primary.close()
+            await replica.close()
+
+    lag, without_replica = asyncio.run(scenario())
+    assert 0 <= lag < 30
+    assert without_replica is None
+
+
 def test_dashboard_reads_from_replica_after_primary_stops(cluster):
     """Must run last in this module: it stops the primary. Only the replica can answer now."""
     item = ticket()

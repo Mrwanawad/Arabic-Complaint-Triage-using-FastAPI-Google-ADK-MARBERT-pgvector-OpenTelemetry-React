@@ -34,12 +34,13 @@ from triage.application.use_cases import (
 from triage.settings import Settings
 
 _PURGE_INTERVAL_SECONDS = 3600
+_LAG_INTERVAL_SECONDS = 15
 
 
-def load_classifiers(settings: Settings) -> dict[str, Classifier]:
+def load_classifiers(settings: Settings, telemetry: Telemetry) -> dict[str, Classifier]:
     classifiers: dict[str, Classifier] = {}
     if (settings.encoder_dir / "model.onnx").exists():
-        classifiers["encoder"] = OnnxClassifier(settings.encoder_dir)
+        classifiers["encoder"] = OnnxClassifier(settings.encoder_dir, telemetry=telemetry)
     if settings.baseline_path.exists():
         classifiers["baseline"] = BaselineClassifier(settings.baseline_path)
     if not classifiers:
@@ -119,19 +120,35 @@ class Container:
     pools: list[Any] = field(default_factory=list)
     limiter: PostgresRateLimiter | None = None
     cache: PostgresSemanticCache | None = None
-    _purge_task: asyncio.Task | None = None
+    tickets: PostgresTickets | None = None
+    telemetry: Telemetry | None = None
+    _tasks: list[asyncio.Task] = field(default_factory=list)
 
     async def startup(self) -> None:
         await apply_schema(self.settings.database_url)
         for pool in self.pools:
             await pool.open(wait=False)
-        self._purge_task = asyncio.create_task(self._purge_loop())
+        self._tasks = [
+            asyncio.create_task(self._purge_loop()),
+            asyncio.create_task(self._lag_loop()),
+        ]
 
     async def shutdown(self) -> None:
-        if self._purge_task is not None:
-            self._purge_task.cancel()
+        for task in self._tasks:
+            task.cancel()
         for pool in self.pools:
             await pool.close()
+
+    async def _lag_loop(self) -> None:
+        while True:
+            try:
+                lag = await self.tickets.replica_lag_seconds()
+                if lag is not None:
+                    self.telemetry.record("triage.replica_lag_seconds", lag)
+            except Exception:
+                # An unreachable replica shows up here and as a dashboard fallback.
+                self.telemetry.count("triage.replica_lag_unavailable")
+            await asyncio.sleep(_LAG_INTERVAL_SECONDS)
 
     async def _purge_loop(self) -> None:
         while True:
@@ -160,7 +177,7 @@ def build_container(settings: Settings, telemetry: Telemetry) -> Container:
     examples = PostgresExamples(primary)
     limiter = PostgresRateLimiter(primary)
     embedder = build_embedder(settings)
-    classifiers = load_classifiers(settings)
+    classifiers = load_classifiers(settings, telemetry)
     default_model = (
         settings.default_model if settings.default_model in classifiers else next(iter(classifiers))
     )
@@ -194,4 +211,6 @@ def build_container(settings: Settings, telemetry: Telemetry) -> Container:
         pools=pools,
         limiter=limiter,
         cache=cache,
+        tickets=tickets,
+        telemetry=telemetry,
     )

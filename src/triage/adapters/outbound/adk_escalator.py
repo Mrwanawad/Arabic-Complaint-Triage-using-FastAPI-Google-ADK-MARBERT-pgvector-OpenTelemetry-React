@@ -224,6 +224,17 @@ class AdkEscalator:
             self._telemetry.count("triage.rate_limiter_errors")
             return True
 
+    def _record_usage(self, route: ProviderRoute, event: Any) -> None:
+        usage = event.usage_metadata
+        if usage is None:
+            return
+        for kind, tokens in (
+            ("prompt", usage.prompt_token_count),
+            ("completion", usage.candidates_token_count),
+        ):
+            if tokens:
+                self._telemetry.count("triage.llm_tokens", tokens, provider=route.name, kind=kind)
+
     async def _call(self, route: ProviderRoute, prompt: str) -> EscalationOutput:
         user_id = "triage"
         session_id = uuid.uuid4().hex
@@ -239,6 +250,7 @@ class AdkEscalator:
                     raise RuntimeError(
                         f"{route.name} returned {event.error_code}: {event.error_message}"
                     )
+                self._record_usage(route, event)
                 if event.is_final_response() and event.content and event.content.parts:
                     text = "".join(part.text or "" for part in event.content.parts)
         finally:

@@ -225,6 +225,23 @@ class PostgresTickets:
             row = await cursor.fetchone()
         return _ticket_from_row(row) if row else None
 
+    async def replica_lag_seconds(self) -> float | None:
+        """None when no replica is configured. Zero when the replica has replayed everything, so an
+        idle system does not look like a lagging one."""
+        if self._replica is None:
+            return None
+        async with self._replica.connection(timeout=5) as connection:
+            cursor = await connection.execute(
+                """
+                SELECT CASE
+                    WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0
+                    ELSE COALESCE(EXTRACT(EPOCH FROM now() - pg_last_xact_replay_timestamp()), 0)
+                END AS lag
+                """
+            )
+            row = await cursor.fetchone()
+        return float(row["lag"])
+
     async def dashboard(self, hours: int) -> Dashboard:
         if self._replica is not None:
             try:

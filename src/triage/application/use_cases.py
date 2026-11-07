@@ -126,7 +126,12 @@ class ClassifyComplaint:
             stored = await self._tickets.save(ticket)
 
         self._telemetry.count(
-            "triage.tickets", decided_by=stored.decided_by.value, queue=stored.target_queue
+            "triage.tickets",
+            decided_by=stored.decided_by.value,
+            queue=stored.target_queue,
+            category=stored.prediction.category.value,
+            urgency=stored.prediction.urgency.value,
+            sentiment=stored.prediction.sentiment.value,
         )
         self._telemetry.record("triage.latency_ms", stored.latency_ms, model=model_name)
         self._telemetry.record("triage.confidence", prediction.confidence)
