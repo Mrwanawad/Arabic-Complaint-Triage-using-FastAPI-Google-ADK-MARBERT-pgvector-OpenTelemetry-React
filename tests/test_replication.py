@@ -108,12 +108,16 @@ def cluster(tmp_path_factory):
 
 def wait_for_row(replica_url: str, ticket_id) -> bool:
     for _ in range(100):
-        with psycopg.connect(replica_url) as connection:
-            exists = connection.execute(
-                "SELECT 1 FROM tickets WHERE ticket_id = %s", (ticket_id,)
-            ).fetchone()
-        if exists:
-            return True
+        try:
+            with psycopg.connect(replica_url) as connection:
+                exists = connection.execute(
+                    "SELECT 1 FROM tickets WHERE ticket_id = %s", (ticket_id,)
+                ).fetchone()
+            if exists:
+                return True
+        except psycopg.errors.UndefinedTable:
+            # The schema itself is still replicating.
+            pass
         time.sleep(0.1)
     return False
 
