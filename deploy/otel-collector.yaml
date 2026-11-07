@@ -1,0 +1,35 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+  batch: {}
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: 0.0.0.0:8889
+  # To add Langfuse, uncomment and list otlphttp/langfuse in the traces pipeline.
+  # otlphttp/langfuse:
+  #   endpoint: https://cloud.langfuse.com/api/public/otel
+  #   headers:
+  #     Authorization: Basic ${env:LANGFUSE_BASIC_AUTH}
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]

@@ -1,0 +1,11 @@
+.venv
+.git
+.env
+artifacts
+data
+mlruns
+frontend/node_modules
+frontend/dist
+tests
+evals
+training

@@ -1,0 +1,17 @@
+.env
+.venv/
+.devdata/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.deepeval/
+mlruns/
+mlflow.db
+artifacts/
+checkpoints/
+reports/
+data/drift_report.html
+data/label_review.json
+frontend/node_modules/
+frontend/dist/

@@ -1,0 +1,32 @@
+databases:
+  - name: triage-db
+    plan: free
+    databaseName: triage
+    user: triage
+
+services:
+  - type: web
+    name: arabic-complaint-triage
+    runtime: docker
+    # Paid plan with 2 GB RAM. The service uses about 1.2 GB, so the 512 MB free plan cannot run it.
+    plan: standard
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: triage-db
+          property: connectionString
+      - key: TRANSCRIBER_ENABLED
+        value: "false"
+      - key: ARTIFACTS_URL
+        sync: false
+      - key: ARTIFACTS_SHA256
+        sync: false
+      - key: ADMIN_API_KEY
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false

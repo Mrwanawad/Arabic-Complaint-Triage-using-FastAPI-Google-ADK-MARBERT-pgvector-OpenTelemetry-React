@@ -1,0 +1,108 @@
+# Full topology. Scale the API with: docker compose up --build --scale api=3
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api:
+        condition: service_started
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://triage:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres-primary:5432/triage
+      DATABASE_REPLICA_URL: postgresql://triage:${POSTGRES_PASSWORD}@postgres-replica:5432/triage
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      TRANSCRIBER_ENABLED: ${TRANSCRIBER_ENABLED:-false}
+    volumes:
+      - ./artifacts:/app/artifacts:ro
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  postgres-primary:
+    image: pgvector/pgvector:0.8.0-pg17
+    ports:
+      # Loopback only, so seeding and training scripts on this machine can reach it.
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: triage
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: triage
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:?set REPLICATION_PASSWORD}
+    command: >
+      postgres
+      -c wal_level=replica
+      -c max_wal_senders=5
+      -c max_replication_slots=5
+      -c hot_standby=on
+    volumes:
+      - pg-primary:/var/lib/postgresql/data
+      - ./deploy/postgres/init-primary.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U triage -d triage"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  postgres-replica:
+    image: pgvector/pgvector:0.8.0-pg17
+    environment:
+      PGPASSWORD: ${REPLICATION_PASSWORD:?set REPLICATION_PASSWORD}
+    entrypoint: ["/bin/bash", "/replica-entrypoint.sh"]
+    user: postgres
+    volumes:
+      - pg-replica:/var/lib/postgresql/data
+      - ./deploy/postgres/replica-entrypoint.sh:/replica-entrypoint.sh:ro
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U triage -d triage"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.65.0
+    ports:
+      - "16686:16686"
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.19.0
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////mlflow/mlflow.db --default-artifact-root /mlflow/artifacts
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow:/mlflow
+
+volumes:
+  pg-primary:
+  pg-replica:
+  mlflow:
