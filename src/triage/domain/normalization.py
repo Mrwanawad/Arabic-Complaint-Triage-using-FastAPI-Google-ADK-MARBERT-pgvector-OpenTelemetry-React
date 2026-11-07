@@ -251,6 +251,7 @@ _NEGATION_WORDS = frozenset(
     {"مش", "مفيش", "ما", "لا", "لم", "لن", "ليس", "بدون", "مو", "not", "no", "without"}
 )
 _NEGATED_VERB = re.compile(r"^ما?[ء-ي]{2,}ش$")
+_NON_WORD = re.compile(r"[^\w\s\[\]]", re.UNICODE)
 # Franco writes the Arabic definite article as a separate word ("el net"), but Arabic attaches it.
 _DETACHED_ARTICLE = re.compile(r"(?<!\S)ال (?=[ء-ي])")
 
@@ -310,6 +311,13 @@ def normalize(text: str) -> str:
     if script in (Script.FRANCO, Script.MIXED):
         normalized = _normalize_franco_tokens(normalized, script)
     return _WHITESPACE.sub(" ", normalized).strip()
+
+
+def embedding_text(normalized_text: str) -> str:
+    """Strip punctuation before embedding. The multilingual model is very sensitive to it in Arabic:
+    adding "!!" dropped cosine similarity to about 0.4 for an otherwise identical sentence."""
+    without_punctuation = _NON_WORD.sub(" ", normalized_text)
+    return _WHITESPACE.sub(" ", without_punctuation).strip()
 
 
 def negation_signature(normalized_text: str) -> str:

@@ -18,13 +18,17 @@ All model numbers come from **synthetic template data** (992 rows, split by temp
 | MARBERT category accuracy after int8 export | 0.87 |
 | ONNX int8 size, CPU latency p50 / p95 | 163 MB, 9 / 14 ms |
 | int8 agreement with PyTorch | category 93%, urgency 93%, sentiment 99.5% |
-| Few-shot label precision@5 | 0.40 (RAGAS context precision 0.72, recall 0.89) |
+| Few-shot label precision@5 | 0.44 (RAGAS context precision 0.71, recall 0.80, which use fuzzy string matching) |
+| Auto-routing at threshold 0.80 | 62% of tickets, 100% category accuracy, 0 urgent tickets missed |
+| Semantic cache at threshold 0.97 | 50% useful hits on 12 same-meaning pairs, 0 wrong hits on 14 different-meaning pairs |
 | LightGBM urgency | Tied the encoder on simulated metadata, so it is not in serving |
 | Service memory | About 1.2 GB before Whisper |
 
 Verified by tests or a local run: the ADK Runner, failover to a stubbed DeepSeek API over real HTTP, circuit breaking, semantic cache hits and the negation guard, PII masking, idempotency under concurrency, shared rate limiting, hash partitions, streaming replication with dashboard reads from the replica, the review flow, MCP, voice transcription, and the React console.
 
 CI also boots the Compose topology on every push and runs `scripts/compose_smoke.sh` against it: load balancing across 3 API replicas, hot-standby replication, Nginx rate limiting, Prometheus scraping, and traces in Jaeger. That stack serves the baseline, because CI has no MARBERT artifact.
+
+The embedder remains weak on Arabic word order: a reordered sentence scored only 0.18. Try a stronger Arabic embedder if retrieval matters on real data.
 
 Not verified yet: calls to the real Gemini, Anthropic, and DeepSeek APIs, the DeepEval suite (which needs those keys), the MARBERT encoder and Whisper inside the container, Langfuse export, and a real Render deployment.
 
@@ -109,6 +113,8 @@ Set `ARTIFACTS_URL` and `ARTIFACTS_SHA256` on the service. The blueprint uses a 
 pytest tests -q
 pytest evals/test_escalation_deepeval.py -m live   # calls paid providers
 python -m evals.eval_retrieval_ragas
+python -m evals.eval_semantic_cache
+python -m training.evaluate_routing
 ```
 
 ## API

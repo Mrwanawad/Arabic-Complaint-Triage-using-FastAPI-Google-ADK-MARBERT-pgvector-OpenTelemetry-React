@@ -1,7 +1,12 @@
 import pytest
 
 from triage.domain.models import Category, Complaint, Prediction, Script, Sentiment, Urgency
-from triage.domain.normalization import detect_script, negation_signature, normalize
+from triage.domain.normalization import (
+    detect_script,
+    embedding_text,
+    negation_signature,
+    normalize,
+)
 from triage.domain.pii import mask_pii
 from triage.domain.routing import OUTAGE_PRIORITY_QUEUE, route
 
@@ -107,6 +112,12 @@ def test_negation_signature_separates_opposites():
 
 def test_negation_signature_detects_negated_verb():
     assert negation_signature(normalize("النت ماشتغلش")) == "1"
+
+
+def test_embedding_text_ignores_punctuation_and_keeps_pii_tokens():
+    assert embedding_text("النت واقع!!") == embedding_text("النت واقع")
+    assert embedding_text("الفاتوره، غلط؟") == "الفاتوره غلط"
+    assert embedding_text("رقمي [national_id] ...") == "رقمي [national_id]"
 
 
 def test_ticket_id_deterministic_with_external_id():

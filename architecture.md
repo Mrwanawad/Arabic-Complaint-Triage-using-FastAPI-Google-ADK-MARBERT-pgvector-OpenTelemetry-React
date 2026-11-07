@@ -14,7 +14,6 @@ A fine-tuned encoder handles most traffic. Only low-confidence messages go to an
 - Per message JSON: `ticket_id`, `category`, `category_confidence`, `urgency`, `sentiment`, `normalized_text`, `decided_by` (encoder / baseline / llm / cache / human), `model_version`, `latency_ms`.
 - Routing decision: target queue; low-confidence messages flagged for human review.
 - Aggregates for dashboard: complaint volume by category/hour, negative-sentiment spikes.
-- Optional feature export: per-customer complaint counts and sentiment for churn models.
 
 ## Application Architecture — Hexagonal (Ports & Adapters)
 Core logic depends only on interfaces (ports). Frameworks and vendors live in adapters. Dependencies always point inward.
@@ -152,7 +151,7 @@ Cost: every LLM-bound request gains Postgres round trips. That is acceptable bec
 - Deep learning: PyTorch, Hugging Face Transformers
 - Imbalance: class weights, stratified splits, weighted loss, imbalanced-learn (baseline resampling comparison)
 - Tuning: Optuna
-- Explainability: LIME / attention inspection for sample predictions
+- Explainability: LIME for sample predictions, run against the baseline
 - LLM orchestration: Google ADK, LiteLLM (ADK's connector for non-Gemini providers)
 - LLM providers: Gemini and Anthropic (primary), DeepSeek (fallback)
 - Retrieval: SentenceTransformers multilingual model (the published ONNX int8 export), PGVector
@@ -189,17 +188,17 @@ Cost: every LLM-bound request gains Postgres round trips. That is acceptable bec
 - Sentiment: macro-F1.
 - Robustness slices: Arabic-only vs. Franco-Arabic vs. mixed text.
 - Serving: p50 / p95 latency, throughput; ONNX vs. PyTorch accuracy delta.
-- LLM path: escalation accuracy, schema-valid rate, fallback rate, cost per escalated ticket (DeepEval).
+- LLM path: escalation accuracy (DeepEval); schema-valid rate, fallback rate, and token usage per provider (metrics). Cost is derived from tokens and each provider's pricing.
 - Retrieval: context precision and context recall for few-shot examples (RAGAS), read alongside exact label precision@k because the non-LLM RAGAS metrics use fuzzy string matching.
 - Cache: hit rate and wrong-hit rate on a held-out set, including negation pairs.
-- Business: % auto-routed, % escalated to LLM, human-override rate, time-to-first-response.
+- Business: % auto-routed, % escalated to LLM, human-override rate. `training/evaluate_routing.py` shows auto-routing against accuracy per threshold. Time-to-first-response needs data from the ticketing system, so it is not measured here.
 
 ## Production Monitoring
 - Category distribution shift (new outage wave, new billing issue).
 - Mean confidence trend and low-confidence rate.
 - Unknown-token / new slang rate.
 - Human-override rate as proxy label; overridden samples feed the retraining set.
-- LLM calls, tokens, cost, errors, and fallback rate per provider; circuit-breaker state.
+- LLM calls, tokens, errors, failovers, and providers skipped by the circuit breaker or budget.
 - Semantic cache hit rate; rate-limit rejections; replica lag.
 - Latency and error rate alerts.
 

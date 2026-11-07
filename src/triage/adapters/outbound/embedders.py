@@ -9,6 +9,8 @@ import onnxruntime as ort
 from sklearn.feature_extraction.text import HashingVectorizer
 from tokenizers import Tokenizer
 
+from triage.domain.normalization import embedding_text
+
 EMBEDDING_DIM = 384
 
 
@@ -24,7 +26,7 @@ class OnnxEmbedder:
         self._inputs = {i.name for i in self._session.get_inputs()}
 
     def embed(self, text: str) -> list[float]:
-        encoding = self._tokenizer.encode(text)
+        encoding = self._tokenizer.encode(embedding_text(text))
         mask = np.array([encoding.attention_mask], dtype=np.int64)
         features = {
             "input_ids": np.array([encoding.ids], dtype=np.int64),
@@ -54,7 +56,7 @@ class HashingEmbedder:
         )
 
     def embed(self, text: str) -> list[float]:
-        vector = self._vectorizer.transform([text]).toarray()[0]
+        vector = self._vectorizer.transform([embedding_text(text)]).toarray()[0]
         if not vector.any():
             vector[0] = 1.0
         return vector.tolist()
