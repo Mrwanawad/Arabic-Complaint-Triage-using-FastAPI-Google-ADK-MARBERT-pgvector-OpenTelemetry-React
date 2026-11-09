@@ -47,20 +47,18 @@ export function App() {
             </button>
           ))}
         </nav>
-        {tab !== "classify" && (
-          <label className="key-field">
-            Admin API key
-            <input
-              type="password"
-              autoComplete="off"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-            />
-          </label>
-        )}
+        <label className="key-field">
+          {tab === "classify" ? "API key" : "Admin API key"}
+          <input
+            type="password"
+            autoComplete="off"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+          />
+        </label>
       </header>
       <main>
-        {tab === "classify" && <ClassifyView />}
+        {tab === "classify" && <ClassifyView apiKey={apiKey} />}
         {tab === "review" && <ReviewView apiKey={apiKey} />}
         {tab === "dashboard" && <DashboardView apiKey={apiKey} />}
       </main>

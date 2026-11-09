@@ -33,6 +33,10 @@ MAX_TEXT_LENGTH = 5000
 MAX_BATCH_SIZE = 64
 
 
+def key_matches(provided: str | None, accepted: list[str]) -> bool:
+    return bool(provided) and any(secrets.compare_digest(provided, key) for key in accepted)
+
+
 class ClassifyRequest(BaseModel):
     text: str = Field(min_length=1, max_length=MAX_TEXT_LENGTH)
     channel: str = Field(default="api", max_length=32)
@@ -106,10 +110,16 @@ def build_router(container: Container) -> APIRouter:
         expected = container.settings.admin_api_key
         if not expected:
             raise HTTPException(503, "ADMIN_API_KEY is not configured")
-        if not x_api_key or not secrets.compare_digest(x_api_key, expected):
+        if not key_matches(x_api_key, [expected]):
+            raise HTTPException(401, "Invalid API key")
+
+    def require_client(x_api_key: Annotated[str | None, Header()] = None) -> None:
+        accepted = container.settings.client_keys
+        if accepted and not key_matches(x_api_key, accepted):
             raise HTTPException(401, "Invalid API key")
 
     admin = [Depends(require_admin)]
+    client = [Depends(require_client)]
 
     def complaint(request: ClassifyRequest) -> Complaint:
         return Complaint(
@@ -127,7 +137,7 @@ def build_router(container: Container) -> APIRouter:
     async def prometheus_metrics() -> Response:
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
-    @router.post("/classify", response_model=TriageResponse)
+    @router.post("/classify", response_model=TriageResponse, dependencies=client)
     async def classify(request: ClassifyRequest, model: str | None = None) -> TriageResponse:
         try:
             ticket = await container.classify.execute(complaint(request), model=model)
@@ -135,7 +145,7 @@ def build_router(container: Container) -> APIRouter:
             raise HTTPException(400, f"Unknown model: {error}") from error
         return TriageResponse.from_ticket(ticket)
 
-    @router.post("/classify/batch", response_model=list[TriageResponse])
+    @router.post("/classify/batch", response_model=list[TriageResponse], dependencies=client)
     async def classify_batch(
         request: BatchRequest, model: str | None = None
     ) -> list[TriageResponse]:
@@ -148,7 +158,7 @@ def build_router(container: Container) -> APIRouter:
             raise HTTPException(400, f"Unknown model: {error}") from error
         return results
 
-    @router.post("/classify/voice", response_model=TriageResponse)
+    @router.post("/classify/voice", response_model=TriageResponse, dependencies=client)
     async def classify_voice(
         audio: Annotated[UploadFile, File()],
         channel: Annotated[str, Form(max_length=32)] = "voice",

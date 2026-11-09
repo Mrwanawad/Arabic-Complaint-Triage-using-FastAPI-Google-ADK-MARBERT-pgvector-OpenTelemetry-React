@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from triage.adapters.inbound.http import build_router, mount_frontend
-from triage.adapters.inbound.mcp import build_mcp
+from triage.adapters.inbound.mcp import build_mcp, require_key
 from triage.application.ports import NullTelemetry
 from triage.artifacts import ensure_artifacts
 from triage.bootstrap import Container, build_container
@@ -40,7 +40,7 @@ def create_app(container: Container | None = None) -> FastAPI:
 
     app = FastAPI(title="Arabic Complaint Triage", version="0.1.0", lifespan=lifespan)
     app.include_router(build_router(active))
-    app.mount("/mcp", mcp_app)
+    app.mount("/mcp", require_key(mcp_app, settings.client_keys))
     if instrument:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 

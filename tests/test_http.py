@@ -11,7 +11,7 @@ from fastmcp import Client
 
 from tests.fakes import FakeClassifier, FakeTickets, FakeTranscriber, make_prediction
 from triage.adapters.inbound.http import build_router
-from triage.adapters.inbound.mcp import build_mcp
+from triage.adapters.inbound.mcp import build_mcp, require_key
 from triage.application.use_cases import (
     ClassifyComplaint,
     GetDashboard,
@@ -30,7 +30,7 @@ class Harness:
     container: object
 
 
-def harness(admin_key=KEY, voice=True, classifier=None) -> Harness:
+def harness(admin_key=KEY, voice=True, classifier=None, client_keys=None) -> Harness:
     tickets = FakeTickets()
     classify = ClassifyComplaint(
         {"encoder": classifier or FakeClassifier(), "baseline": FakeClassifier()},
@@ -47,7 +47,12 @@ def harness(admin_key=KEY, voice=True, classifier=None) -> Harness:
         voice: IngestVoiceNote | None
 
     container = StubContainer(
-        Settings(admin_api_key=admin_key, max_audio_bytes=100, _env_file=None),
+        Settings(
+            admin_api_key=admin_key,
+            client_api_keys=client_keys,
+            max_audio_bytes=100,
+            _env_file=None,
+        ),
         classify,
         ReviewTicket(tickets),
         GetDashboard(tickets),
@@ -132,6 +137,39 @@ def test_admin_routes_reject_missing_and_wrong_key(path):
     assert client.get(path).status_code == 401
     assert client.get(path, headers={"X-API-Key": "wrong"}).status_code == 401
     assert client.get(path, headers={"X-API-Key": KEY}).status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("path", "kwargs"),
+    [
+        ("/classify", {"json": {"text": "x"}}),
+        ("/classify/batch", {"json": {"items": [{"text": "x"}]}}),
+        ("/classify/voice", {"files": {"audio": ("a.ogg", "النت واقع".encode())}}),
+    ],
+)
+def test_classify_routes_require_client_key_when_configured(path, kwargs):
+    client = harness(client_keys="k1, k2").client
+    assert client.post(path, **kwargs).status_code == 401
+    assert client.post(path, headers={"X-API-Key": "wrong"}, **kwargs).status_code == 401
+    assert client.post(path, headers={"X-API-Key": "k2"}, **kwargs).status_code == 200
+    assert client.post(path, headers={"X-API-Key": KEY}, **kwargs).status_code == 200
+
+
+def test_admin_key_alone_leaves_classify_open():
+    assert harness(client_keys=None).client.post("/classify", json={"text": "x"}).status_code == 200
+
+
+def test_mcp_guard_accepts_header_or_bearer():
+    async def ok(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    client = TestClient(require_key(ok, ["secret"]))
+    assert client.post("/").status_code == 401
+    assert client.post("/", headers={"Authorization": "Bearer nope"}).status_code == 401
+    assert client.post("/", headers={"X-API-Key": "secret"}).status_code == 200
+    assert client.post("/", headers={"Authorization": "Bearer secret"}).status_code == 200
+    assert require_key(ok, []) is ok
 
 
 def test_admin_routes_closed_when_key_unset():

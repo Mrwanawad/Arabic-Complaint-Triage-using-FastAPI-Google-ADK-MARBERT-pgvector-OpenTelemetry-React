@@ -16,6 +16,7 @@ services:
       DATABASE_URL: postgresql://triage:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres-primary:5432/triage
       DATABASE_REPLICA_URL: postgresql://triage:${POSTGRES_PASSWORD}@postgres-replica:5432/triage
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      CLIENT_API_KEYS: ${CLIENT_API_KEYS:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}

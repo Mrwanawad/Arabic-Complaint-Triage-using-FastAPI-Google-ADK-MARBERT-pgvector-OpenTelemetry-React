@@ -24,6 +24,8 @@ services:
         sync: false
       - key: ADMIN_API_KEY
         generateValue: true
+      - key: CLIENT_API_KEYS
+        generateValue: true
       - key: GEMINI_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from fastmcp import FastMCP
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
+from triage.adapters.inbound.http import key_matches
 from triage.bootstrap import Container
 from triage.domain.models import Complaint
 
@@ -28,3 +31,22 @@ def build_mcp(container: Container) -> FastMCP:
         }
 
     return mcp
+
+
+def require_key(app: ASGIApp, accepted: list[str]) -> ASGIApp:
+    """Rejects MCP calls without a client key, read from X-API-Key or a Bearer token."""
+    if not accepted:
+        return app
+
+    async def guarded(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            headers = {k.decode().lower(): v.decode() for k, v in scope["headers"]}
+            bearer = headers.get("authorization", "").removeprefix("Bearer ").strip()
+            if not (
+                key_matches(headers.get("x-api-key"), accepted) or key_matches(bearer, accepted)
+            ):
+                await JSONResponse({"detail": "Invalid API key"}, 401)(scope, receive, send)
+                return
+        await app(scope, receive, send)
+
+    return guarded

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Checks the running Compose topology end to end. Start it first:
 #   docker compose up -d --build --wait --scale api=3 nginx api postgres-primary postgres-replica otel-collector jaeger prometheus
-# Requires ADMIN_API_KEY to match the stack.
+# Requires ADMIN_API_KEY to match the stack, and CLIENT_API_KEYS too when the stack sets it.
 set -euo pipefail
 
 BASE=http://localhost:8080
+CLIENT_KEY=${CLIENT_API_KEYS:-}
+CLIENT_KEY=${CLIENT_KEY%%,*}
 failures=0
 
 check() {
@@ -28,7 +30,7 @@ at_least() {
 }
 
 classify() {
-  curl -s -X POST "$BASE/classify" -H 'Content-Type: application/json' \
+  curl -s -X POST "$BASE/classify" -H 'Content-Type: application/json' -H "X-API-Key: $CLIENT_KEY" \
     -d "{\"text\": \"النت واقع من امبارح ورقمي 01012345678\", \"channel\": \"tickets\", \"external_id\": \"$1\"}"
 }
 
@@ -76,7 +78,7 @@ check "tickets are hash partitioned" \
   "$(replica_sql "SELECT count(*) FROM pg_inherits WHERE inhparent = 'tickets'::regclass")" "8"
 
 codes=$(seq 1 300 | xargs -P 60 -I{} curl -s -o /dev/null -w '%{http_code}\n' \
-  -X POST "$BASE/classify" -H 'Content-Type: application/json' \
+  -X POST "$BASE/classify" -H 'Content-Type: application/json' -H "X-API-Key: $CLIENT_KEY" \
   -d '{"text": "النت بطيء", "channel": "tickets", "external_id": "burst-{}"}')
 at_least "edge rate limit returned 429" "$(grep -c '^429$' <<<"$codes" || true)" 1
 at_least "requests still served during burst" "$(grep -c '^200$' <<<"$codes" || true)" 1

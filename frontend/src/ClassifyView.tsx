@@ -10,7 +10,7 @@ const SAMPLES = [
 
 const percent = (value: number) => `${Math.round(value * 100)}%`;
 
-export function ClassifyView() {
+export function ClassifyView({ apiKey }: { apiKey: string }) {
   const [text, setText] = useState(SAMPLES[0].text);
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState("");
@@ -32,7 +32,7 @@ export function ClassifyView() {
     setBusy(true);
     setError(null);
     try {
-      setResult(await classify(text, model));
+      setResult(await classify(text, model, apiKey));
     } catch (reason) {
       setResult(null);
       setError((reason as Error).message);

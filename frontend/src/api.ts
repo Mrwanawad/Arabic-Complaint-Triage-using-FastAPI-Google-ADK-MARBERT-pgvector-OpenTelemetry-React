@@ -65,11 +65,12 @@ async function request<T>(path: string, init: RequestInit = {}, apiKey?: string)
   return response.json() as Promise<T>;
 }
 
-export const classify = (text: string, model: string) =>
-  request<Triage>(`/classify?model=${encodeURIComponent(model)}`, {
-    method: "POST",
-    body: JSON.stringify({ text, channel: "api" }),
-  });
+export const classify = (text: string, model: string, apiKey?: string) =>
+  request<Triage>(
+    `/classify?model=${encodeURIComponent(model)}`,
+    { method: "POST", body: JSON.stringify({ text, channel: "api" }) },
+    apiKey,
+  );
 
 export const getModels = () => request<{ models: string[] }>("/health");
 

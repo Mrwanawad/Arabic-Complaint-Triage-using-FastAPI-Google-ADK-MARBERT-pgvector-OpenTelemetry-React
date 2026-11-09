@@ -48,8 +48,15 @@ class Settings(BaseSettings):
 
     # Review and dashboard endpoints refuse every request while this is unset.
     admin_api_key: str | None = None
+    # Comma-separated keys for /classify and /mcp. Unset leaves them open for local development.
+    client_api_keys: str | None = None
 
     otel_enabled: bool = True
+
+    @property
+    def client_keys(self) -> list[str]:
+        keys = [k.strip() for k in (self.client_api_keys or "").split(",") if k.strip()]
+        return [*keys, self.admin_api_key] if keys and self.admin_api_key else keys
 
     @property
     def encoder_dir(self) -> Path:
@@ -62,6 +69,10 @@ class Settings(BaseSettings):
     @property
     def urgency_path(self) -> Path:
         return self.artifacts_dir / "urgency_lgbm.txt"
+
+    @property
+    def whisper_dir(self) -> Path:
+        return self.artifacts_dir / "whisper"
 
     @property
     def embedder_dir(self) -> Path:
