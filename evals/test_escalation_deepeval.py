@@ -1,13 +1,17 @@
 """LLM regression suite using DeepEval with custom, deterministic metrics.
 
-Calls real providers, so it needs API keys and costs a small amount.
-Usage: pytest evals/test_escalation_deepeval.py -m live
+With provider keys it calls real providers and costs a small amount:
+    pytest evals/test_escalation_deepeval.py -m live
+Without keys, or with EVAL_PROVIDER=offline, the same path runs against a local
+OpenAI-compatible server answered by the TF-IDF baseline (evals/offline_provider.py).
+That checks the harness and the ADK -> LiteLLM -> HTTP path, not real LLM quality.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -15,7 +19,14 @@ from deepeval import assert_test
 from deepeval.metrics import BaseMetric
 from deepeval.test_case import LLMTestCase
 
-from triage.adapters.outbound.adk_escalator import PROMPT_VERSION
+from evals import offline_provider
+from triage.adapters.outbound.adk_escalator import (
+    PROMPT_VERSION,
+    AdkEscalator,
+    CircuitBreaker,
+    build_route,
+    litellm_model,
+)
 from triage.application.ports import NullTelemetry
 from triage.bootstrap import build_escalator
 from triage.domain.models import Category, Prediction, Sentiment, Urgency
@@ -63,10 +74,19 @@ class LabelMatch(BaseMetric):
 
 @pytest.fixture(scope="module")
 def escalator():
-    built = build_escalator(Settings(), limiter=None, telemetry=NullTelemetry())
-    if built is None:
-        pytest.skip("No LLM provider key configured")
-    return built
+    settings = Settings()
+    built = None
+    if os.getenv("EVAL_PROVIDER") != "offline":
+        built = build_escalator(settings, limiter=None, telemetry=NullTelemetry())
+    if built is not None:
+        yield built
+        return
+    if not settings.baseline_path.exists():
+        pytest.skip("No provider key and no baseline artifact for the offline provider")
+    with offline_provider.serve(settings.baseline_path) as url:
+        model = litellm_model("openai/offline-baseline", 15, api_base=url, api_key="offline")
+        route = build_route("offline", model, "offline-baseline", 1.0, True, CircuitBreaker())
+        yield AdkEscalator([route], timeout_seconds=30)
 
 
 @pytest.mark.parametrize("case", GOLDEN, ids=[g["text"][:30] for g in GOLDEN])

@@ -22,7 +22,7 @@ All model numbers come from **synthetic template data** (992 rows, split by temp
 | Auto-routing at threshold 0.80 | 62% of tickets, 100% category accuracy, 0 urgent tickets missed |
 | Semantic cache at threshold 0.97 | 50% useful hits on 12 same-meaning pairs, 0 wrong hits on 14 different-meaning pairs |
 | LightGBM urgency | Tied the encoder on simulated metadata, so it is not in serving |
-| Service memory | About 1.2 GB before Whisper |
+| Service memory per container | About 0.8 GB, 1.0 GB with Whisper loaded |
 
 Verified by tests or a local run: the ADK Runner, failover to a stubbed DeepSeek API over real HTTP, circuit breaking, semantic cache hits and the negation guard, PII masking, idempotency under concurrency, shared rate limiting, hash partitions, streaming replication with dashboard reads from the replica, the review flow, MCP, voice transcription, and the React console.
 
@@ -30,7 +30,9 @@ CI also boots the Compose topology on every push and runs `scripts/compose_smoke
 
 The embedder remains weak on Arabic word order: a reordered sentence scored only 0.18. Try a stronger Arabic embedder if retrieval matters on real data.
 
-Not verified yet: calls to the real Gemini, Anthropic, and DeepSeek APIs, the DeepEval suite (which needs those keys), the MARBERT encoder and Whisper inside the container, Langfuse export, and a real Render deployment.
+Verified locally without provider keys: MARBERT and Whisper inside the container (3 replicas behind Nginx, voice note to ticket in under 1 s once warm, about 1 GB per replica with Whisper loaded), a Render-style boot that downloads the artifact bundle, checks its SHA-256 and listens on `$PORT`, client-key auth on `/classify` and `/mcp`, and OTLP export with Langfuse's Basic auth header to a local receiver. The DeepEval suite also runs offline with `EVAL_PROVIDER=offline`, which puts the TF-IDF baseline behind a local OpenAI-compatible API on the real ADK and LiteLLM path. There it matches 10 of 15 golden cases. The misses are negation, a thank-you, line misuse, a prompt injection and one English outage, so this measures the baseline, not an LLM.
+
+Not verified yet, because each needs an account or a paid key: calls to the real Gemini, Anthropic, and DeepSeek APIs, the DeepEval suite against them, Langfuse accepting the traces, and a live Render deployment.
 
 ## Layout
 
@@ -65,6 +67,8 @@ python -m training.train_urgency
 ```
 
 The bundled data is synthetic and only proves the pipeline runs. Replace `data/synthetic.csv` with labeled tickets before trusting any metric.
+
+Whisper `base` can be bundled in `artifacts/whisper/` (the `Systran/faster-whisper-base` files: `model.bin`, `config.json`, `tokenizer.json`, `vocabulary.txt`). Without it, each replica downloads the weights from Hugging Face. Either way the service loads Whisper in the background at startup, so the first voice note does not hit the Nginx timeout.
 
 The embedder goes in `artifacts/embedder/` as `model.onnx` and `tokenizer.json`, taken from the ONNX folder of `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`. Without it, the service falls back to a lexical hashing embedder meant only for development.
 
@@ -112,6 +116,7 @@ Set `ARTIFACTS_URL` and `ARTIFACTS_SHA256` on the service. The blueprint uses a 
 ```bash
 pytest tests -q
 pytest evals/test_escalation_deepeval.py -m live   # calls paid providers
+EVAL_PROVIDER=offline pytest evals/test_escalation_deepeval.py -m live   # no keys, baseline behind a local API
 python -m evals.eval_retrieval_ragas
 python -m evals.eval_semantic_cache
 python -m training.evaluate_routing
@@ -127,13 +132,13 @@ curl -X POST localhost:8080/classify \
 
 | Endpoint | Purpose | Auth |
 |---|---|---|
-| `POST /classify` | One message; add `?model=baseline` to compare | None |
-| `POST /classify/batch` | Up to 64 messages | None |
-| `POST /classify/voice` | Voice note, multipart field `audio` | None |
+| `POST /classify` | One message; add `?model=baseline` to compare | Client key |
+| `POST /classify/batch` | Up to 64 messages | Client key |
+| `POST /classify/voice` | Voice note, multipart field `audio` | Client key |
 | `GET /review` | Pending tickets, masked text only | `X-API-Key` |
 | `POST /review/{id}` | Human decision | `X-API-Key` |
 | `GET /dashboard` | Aggregates, served from the read replica | `X-API-Key` |
 | `GET /health`, `GET /metrics` | Health and Prometheus metrics | None |
-| `/mcp` | MCP tool `classify_complaint` | None |
+| `/mcp` | MCP tool `classify_complaint` | Client key |
 
-Add authentication before exposing `/classify` or `/mcp` publicly: they write tickets and can trigger paid LLM calls, limited only by the rate limits.
+Client key routes accept any key in `CLIENT_API_KEYS` (or the admin key), sent as `X-API-Key` or, for MCP, `Authorization: Bearer <key>`. When `CLIENT_API_KEYS` is empty they are open, which suits local development only: they write tickets and can trigger paid LLM calls. The Render blueprint generates a key, so a deployment starts closed.
