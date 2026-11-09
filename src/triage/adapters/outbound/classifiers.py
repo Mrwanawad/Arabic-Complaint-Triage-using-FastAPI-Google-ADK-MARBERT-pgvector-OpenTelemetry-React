@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import threading
 from pathlib import Path
 
 import joblib
@@ -157,17 +158,24 @@ class LightGbmUrgency:
 class WhisperTranscriber:
     """Loads lazily because the model is large and many deployments disable voice."""
 
-    def __init__(self, model_size: str = "base") -> None:
-        self._model_size = model_size
+    def __init__(self, model: str = "base") -> None:
+        # A model size downloads from Hugging Face on first load; a directory loads offline.
+        self._model_name = model
         self._model = None
+        self._lock = threading.Lock()
+
+    def warm(self) -> None:
+        """Loads the model ahead of the first request, which would otherwise time out."""
+        with self._lock:
+            if self._model is None:
+                from faster_whisper import WhisperModel
+
+                self._model = WhisperModel(self._model_name, device="cpu", compute_type="int8")
 
     def transcribe(self, audio: bytes) -> str:
         import av
 
-        if self._model is None:
-            from faster_whisper import WhisperModel
-
-            self._model = WhisperModel(self._model_size, device="cpu", compute_type="int8")
+        self.warm()
         try:
             segments, _ = self._model.transcribe(io.BytesIO(audio), language="ar", vad_filter=True)
             return " ".join(segment.text.strip() for segment in segments).strip()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any
@@ -32,6 +33,8 @@ from triage.application.use_cases import (
     TriagePolicy,
 )
 from triage.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 _PURGE_INTERVAL_SECONDS = 3600
 _LAG_INTERVAL_SECONDS = 15
@@ -122,6 +125,7 @@ class Container:
     cache: PostgresSemanticCache | None = None
     tickets: PostgresTickets | None = None
     telemetry: Telemetry | None = None
+    transcriber: WhisperTranscriber | None = None
     _tasks: list[asyncio.Task] = field(default_factory=list)
 
     async def startup(self) -> None:
@@ -132,6 +136,15 @@ class Container:
             asyncio.create_task(self._purge_loop()),
             asyncio.create_task(self._lag_loop()),
         ]
+        if self.transcriber is not None:
+            self._tasks.append(asyncio.create_task(self._warm_transcriber()))
+
+    async def _warm_transcriber(self) -> None:
+        try:
+            await asyncio.to_thread(self.transcriber.warm)
+        except Exception:
+            # Voice requests retry the load and report their own failure.
+            logger.warning("Whisper warm-up failed", exc_info=True)
 
     async def shutdown(self) -> None:
         for task in self._tasks:
@@ -200,14 +213,20 @@ def build_container(settings: Settings, telemetry: Telemetry) -> Container:
         telemetry=telemetry,
     )
     voice = None
+    transcriber = None
     if settings.transcriber_enabled and importlib.util.find_spec("faster_whisper"):
-        voice = IngestVoiceNote(WhisperTranscriber(settings.whisper_model), classify)
+        bundled = settings.whisper_dir
+        transcriber = WhisperTranscriber(
+            str(bundled) if bundled.is_dir() else settings.whisper_model
+        )
+        voice = IngestVoiceNote(transcriber, classify)
     return Container(
         settings=settings,
         classify=classify,
         review=ReviewTicket(tickets, embedder, examples, telemetry),
         dashboard=GetDashboard(tickets),
         voice=voice,
+        transcriber=transcriber,
         pools=pools,
         limiter=limiter,
         cache=cache,
