@@ -11,6 +11,8 @@
 
 A production-style triage service for telecom support complaints written in **Egyptian Arabic, Franco-Arabic ("el net wa2e3"), English, or a mix**, sent as text or voice notes. Each message gets a category, an urgency and a sentiment, and is routed to the right support queue in near real time.
 
+<p align="center"><img src="docs/demo.gif" width="100%" alt="Demo: an Egyptian Arabic outage complaint is classified and routed to the priority network queue, a Franco-Arabic message is handled the same way, an uncertain message goes to the human review queue, and a reviewer saves a decision in the React console."/></p>
+
 The core idea is **escalation by confidence**:
 
 1. A fine-tuned **MARBERT** encoder, exported to ONNX int8, handles confident traffic on CPU in about 10 ms.

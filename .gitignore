@@ -15,3 +15,5 @@ data/drift_report.html
 data/label_review.json
 frontend/node_modules/
 frontend/dist/
+
+docs/demo/build/
